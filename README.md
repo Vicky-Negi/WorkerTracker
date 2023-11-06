@@ -1,4 +1,4 @@
-# worker_tracker
+# Worker_Tracker_App
 
 An App to keep track of worker working for you and manage their pay
 
@@ -42,6 +42,8 @@ This project is a starting point for a Flutter application.
    - Clone the repository in Visual Studio Code using Git integration or terminal commands.
    - Run the `main.dart` file after opening the Flutter project in VSCode.
 
+## Note: Youtube Video Link for more clear and detailed steps
+   `https://www.youtube.com/watch?v=ZSWfgxrxN0M` 
 
 
 
