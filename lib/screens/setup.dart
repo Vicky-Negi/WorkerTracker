@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import '../db/action_repository.dart';
+import '../db/database_helper.dart' as DBHelper; // Import the database helper
 import '../screens/track_page.dart';
+
 class SetupPage extends StatefulWidget {
   final String selectedActionText;
+  final String selectedActionId;
 
-  SetupPage({required this.selectedActionText});
+  SetupPage({required this.selectedActionText, required this.selectedActionId});
 
   @override
   _SetupPageState createState() => _SetupPageState();
@@ -17,7 +19,13 @@ class _SetupPageState extends State<SetupPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text("Pay per month to ${widget.selectedActionText}"),
+        title: Text("Pay per month to ${widget.selectedActionId}"),
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back),
+          onPressed: () {
+            Navigator.pop(context,false);
+          },
+        ),
       ),
       body: Center(
         child: Column(
@@ -36,7 +44,8 @@ class _SetupPageState extends State<SetupPage> {
                     ),
                     SizedBox(height: 20),
                     TextFormField(
-                      keyboardType: TextInputType.numberWithOptions(decimal: true),
+                      keyboardType:
+                          TextInputType.numberWithOptions(decimal: true),
                       decoration: InputDecoration(labelText: 'Enter Amount'),
                       onChanged: (value) {
                         setState(() {
@@ -54,11 +63,12 @@ class _SetupPageState extends State<SetupPage> {
                             builder: (BuildContext context) {
                               return AlertDialog(
                                 title: Text('Invalid Amount'),
-                                content: Text('Please enter a valid payable amount.'),
+                                content: Text(
+                                    'Please enter a valid payable amount.'),
                                 actions: <Widget>[
                                   TextButton(
                                     onPressed: () {
-                                      Navigator.of(context).pop();
+                                      Navigator.of(context).pop(false);
                                     },
                                     child: Text('OK'),
                                   ),
@@ -67,16 +77,20 @@ class _SetupPageState extends State<SetupPage> {
                             },
                           );
                         } else {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => TrackPage(
-        selectedActionText: widget.selectedActionText,
-        amountPayable: amountPayable,
-      ),
-    ),
-  );
-                        
+                          int actionId = int.tryParse(widget.selectedActionId) ?? 0;
+                          // Update the pay per day in the database
+                          await DBHelper.DatabaseHelper.instance.updatePayableAmountPerDay(actionId, amountPayable);
+                          print(actionId);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => TrackPage(
+                                selectedItemText: widget.selectedActionText,
+                                amountPayable: amountPayable,
+                                selectedItemId: actionId,
+                              ),
+                            ),
+                          );
                         }
                       },
                       child: Text('Next'),

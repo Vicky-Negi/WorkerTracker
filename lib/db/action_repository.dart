@@ -43,7 +43,7 @@ class DbOperations {
       return Action(
         id: maps[i]['id'],
         name: maps[i]['name'],
-        payPerMonth: maps[i]['payPerMonth'],
+        payPerDay: maps[i]['payPerDay'],
       );
     });
   }

@@ -1,16 +1,19 @@
+
+
 import 'package:flutter/material.dart';
+import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
 import './screens/track_page.dart';
 import './screens/setup.dart';
-import './db/action_repository.dart';
-import './db/database_helper.dart';
-import './db/models.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import './db/database_helper.dart' as DBHelper; // Using an alias for clarity
+import './db/models.dart' as DBModels; // Using an alias for clarity
+import 'dart:io';
 
-Future main() async {
-  // Initialize FFI
-sqfliteFfiInit();
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized(); // Ensure that Flutter bindings are initialized
+  String path = join(await getDatabasesPath(), 'worker_tracker.db');
+  DBHelper.DatabaseHelper.instance.initializeDatabase(path); // Initialize the database
 
- databaseFactory = databaseFactoryFfi;
   runApp(MyApp());
 }
 
@@ -30,22 +33,39 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  List<String> actionList = ['Action 1', 'Action 2', 'Action 3', 'Action 4', 'Action 5'];
+  List<DBModels.Action> actionList = []; // Change to a list of Action objects
+
   @override
   void initState() {
     super.initState();
+    fetchActionsFromDatabase(); // Fetch actions when the widget initializes
   }
-  void addCard() {
+  
+
+  Future<void> fetchActionsFromDatabase() async {
+    List<DBModels.Action> actions =
+        await DBHelper.DatabaseHelper.instance.getActions();
     setState(() {
-      actionList.add('New Action');
+      actionList = actions;
     });
+  }
+
+  void addCard() async {
+    DBModels.Action newAction =
+        DBModels.Action(name: 'New Action', payPerDay: 0);
+    await DBHelper.DatabaseHelper.instance.insertAction(newAction);
+    fetchActionsFromDatabase();
+  }
+    void refreshData() {
+    fetchActionsFromDatabase(); // Refresh data after returning from pushed page
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Editable Cards'),
+        centerTitle: true,
+        title: Text('Worker Tracker'),
       ),
       body: SingleChildScrollView(
         scrollDirection: Axis.vertical,
@@ -61,22 +81,30 @@ class _MyHomePageState extends State<MyHomePage> {
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
               ),
-              Container( // Wrap your Column with a Container to specify width
-                width: 500, // Set the width as needed
-                child: Column(
-                  children: List.generate(
-                    actionList.length,
-                    (index) => ActionCard(
-                      title: actionList[index],
-                      onChanged: (newName) {
-                        setState(() {
-                          actionList[index] = newName;
-                        });
-                      },
+              actionList.isEmpty // Check if the actionList is empty
+                  ? Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Text('No actions created.'),
+                    )
+                  : Container(
+                      width: 500,
+                      child: Column(
+                        children: List.generate(
+                          actionList.length,
+                          (index) => ActionCard(
+                            id: actionList[index].id ?? 0,
+                            title: actionList[index].name,
+                            payPerDay: actionList[index].payPerDay,
+                            refreshParent: refreshData,
+                            onChanged: (newName) {
+                              setState(() {
+                                actionList[index].name = newName;
+                              });
+                            },
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ),
             ],
           ),
         ),
@@ -89,11 +117,15 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 }
 
+
 class ActionCard extends StatefulWidget {
+  final int id; // Define the id for ActionCard
   final String title;
   final ValueChanged<String> onChanged;
+  final Function() refreshParent; // Callback function from ActionCard to MyHomePage
+  final double payPerDay;
 
-  ActionCard({required this.title, required this.onChanged});
+  ActionCard({required this.id, required this.title, required this.onChanged, required this.refreshParent,required this.payPerDay});
 
   @override
   _ActionCardState createState() => _ActionCardState();
@@ -108,13 +140,12 @@ class _ActionCardState extends State<ActionCard> {
     super.initState();
     _textEditingController = TextEditingController(text: widget.title);
   }
-    void updateActionName(String newName) {
-    // Update the name in the database here
-    // Use the repository or helper class to perform database operations
-    // For example, assuming you have an ActionRepository
-    DbOperations().updateActionName(widget.title, newName);
-    widget.onChanged(newName); // Notify the parent widget about the change
+
+  Future<void> updateActionName(String newName) async {
+    await DBHelper.DatabaseHelper.instance
+        .updateActionName(widget.id.toString(), newName);
   }
+  
 
   @override
   Widget build(BuildContext context) {
@@ -124,14 +155,34 @@ class _ActionCardState extends State<ActionCard> {
         width: 250,
         height: 100,
         child: GestureDetector(
-          onTap: () {
+          onTap: () async{
             if (!_isEditing) {
-              Navigator.push(
+              if(widget.payPerDay>0.0){
+                print(widget.title);
+                await Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => SetupPage(selectedActionText: widget.title),
+                  builder: (context) =>
+                      TrackPage(selectedItemText: widget.title,amountPayable: widget.payPerDay, selectedItemId: widget.id),
                 ),
               );
+              setState(() {
+                  widget.refreshParent(); // Trigger data refresh in MyHomePage
+              });
+              }
+              else if(widget.payPerDay<=0.0){
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      SetupPage(selectedActionText: widget.title,selectedActionId: widget.id.toString(),),
+                ),
+              );
+              setState(() {
+                  widget.refreshParent(); // Trigger data refresh in MyHomePage
+              });
+               // After navigation, fetch the updated data from the database.
+              }
             }
           },
           child: DecoratedBox(
@@ -153,7 +204,9 @@ class _ActionCardState extends State<ActionCard> {
                             },
                             child: Text(
                               widget.title,
-                              style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold),
                             ),
                           ),
                         )
@@ -162,14 +215,20 @@ class _ActionCardState extends State<ActionCard> {
                           child: TextField(
                             controller: _textEditingController,
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                            onSubmitted: (newName) {
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold),
+                            onSubmitted: (newName) async {
+                              // Update the database with the new name
+                              await updateActionName(newName);
+                              // Notify the parent widget about the change
                               widget.onChanged(newName);
                               setState(() {
                                 _isEditing = false;
                               });
                             },
-                            decoration: InputDecoration(border: InputBorder.none),
+                            decoration:
+                                InputDecoration(border: InputBorder.none),
                           ),
                         ),
                 ),
@@ -181,9 +240,3 @@ class _ActionCardState extends State<ActionCard> {
     );
   }
 }
-
-
-
-
-
-

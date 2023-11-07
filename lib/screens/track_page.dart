@@ -1,214 +1,237 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
-import '../main.dart'; // Import the main.dart file or specify the path correctly
+import 'package:WorkerTracker/main.dart';
+import '../db/database_helper.dart' as DBHelper; // Import the database helper
+import '../db/models.dart' as DBModels; // Import the database models
 
-class TrackPage extends StatelessWidget {
-  final String selectedActionText;
-  final double amountPayable;
+class TrackPage extends StatefulWidget {
+  final String selectedItemText;
+  final int selectedItemId;
+  double amountPayable;
 
-  TrackPage({required this.selectedActionText, required this.amountPayable});
+  TrackPage({
+    required this.selectedItemText,
+    required this.amountPayable,
+    required this.selectedItemId,
+  });
+
+  @override
+  _TrackPageState createState() => _TrackPageState();
+}
+
+class _TrackPageState extends State<TrackPage> {
+  Map<DateTime, bool> attendance = {}; // Map to track attendance
+  DateTime _focusedMonth = DateTime.now();
+  double previousAmount = 0.0; // Store previous amount for reference
+  List<double> payPerDayHistory = [];
+  double totalPayableTillYesterday = 0; // Track total payable till yesterday
+
+  @override
+  void initState() {
+    super.initState();
+    _initAttendanceData(_focusedMonth);
+    _fetchAbsentDatesForMonth(_focusedMonth);
+  }
+
+  // // Method to fetch absent dates for the focused month
+  // void _fetchAbsentDatesForMonth(DateTime focusedMonth) async {
+  //   List<DBModels.AbsentDate> absentDates = await DBHelper
+  //       .DatabaseHelper.instance
+  //       .getAbsentDatesForMonth(widget.selectedItemId, focusedMonth);
+
+  //   // Update the attendance map with fetched absent dates
+  //   for (var date in absentDates) {
+  //     attendance[DateTime.parse(date.date)] = true;
+  //   }
+  //   setState(() {}); // Update the UI to reflect the changes
+  // }
+  void _fetchAbsentDatesForMonth(DateTime focusedMonth) async {
+  List<DBModels.AbsentDate> absentDates = await DBHelper
+      .DatabaseHelper.instance
+      .getAbsentDatesForMonth(widget.selectedItemId, focusedMonth);
+
+  // Update the attendance map with fetched absent dates
+  for (var date in absentDates) {
+    try {
+      DateTime parsedDate = DateTime.parse(date.date);
+      attendance[parsedDate] = true;
+    } catch (e) {
+      // Handle the date parsing issue or log the error
+      print("Error parsing date: ${date.date}");
+    }
+  }
+  setState(() {});
+}
+
+
+  void _initAttendanceData(DateTime focusedMonth) {
+    DateTime firstDay = DateTime(focusedMonth.year, focusedMonth.month, 1);
+    DateTime lastDay = DateTime(focusedMonth.year, focusedMonth.month + 1, 0);
+
+    for (DateTime date = firstDay;
+        date.isBefore(lastDay) || date == lastDay;
+        date = date.add(Duration(days: 1))) {
+      attendance.putIfAbsent(date, () => false);
+    }
+  }
+
+  void updatePayPerDay(double newPayPerDay) {
+    // If the pay per day is updated, add it to history
+    payPerDayHistory.add(newPayPerDay);
+
+    setState(() {
+      widget.amountPayable = newPayPerDay;
+    });
+  }
+
+  // Updated method to store marked absent dates in the database
+  void _onDaySelected(DateTime selectedDay, DateTime focusedDay) async {
+    if (selectedDay.isBefore(DateTime.now().subtract(Duration(days: 1)))) {
+      // Do not allow marking future days
+      return;
+    }
+
+    // Toggle the attendance for the selected day
+    setState(() {
+      attendance[selectedDay] = !(attendance[selectedDay] ?? false);
+    });
+
+    if (attendance[selectedDay] == true) {
+      DBModels.AbsentDate newAbsentDate = DBModels.AbsentDate(
+        actionId: widget.selectedItemId,
+        date: selectedDay.toIso8601String(),
+      );
+
+      await DBHelper.DatabaseHelper.instance
+          .insertOrUpdateAbsentDate(newAbsentDate);
+    } else {
+      // If the day is unmarked, delete it from the database
+      await DBHelper.DatabaseHelper.instance.deleteAbsentDateByDate(
+          widget.selectedItemId, selectedDay.toIso8601String());
+    }
+  }
+
+void _onPageChanged(DateTime focusedMonth) async {
+  if (focusedMonth.isBefore(DateTime.now())) {
+    List<DBModels.AbsentDate> absentDates = await DBHelper.DatabaseHelper.instance.getAbsentDatesForMonth(
+      widget.selectedItemId,
+      focusedMonth,
+    );
+
+    if (absentDates.isNotEmpty) {
+      setState(() {
+        _focusedMonth = focusedMonth;
+        _initAttendanceData(focusedMonth);
+      });
+    }
+  }
+}
+
+  int getAbsentDaysCount() {
+    return attendance.values.where((value) => value).length;
+  }
+
+  double calculateTotalPayable() {
+    print("here");
+    print(widget.amountPayable);
+    int absentDays = getAbsentDaysCount();
+    int totalDaysInMonth = DateTime.now().day;
+    print((totalDaysInMonth - absentDays) * widget.amountPayable);
+    return ((totalDaysInMonth - absentDays) * widget.amountPayable);
+  }
 
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => MyHomePage()),
-        );
-        return false;
-      },
+      // Navigate back to the main.dart
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => MyHomePage()),
+        (Route<dynamic> route) => false, // Remove all previous routes
+      );
+      return false; // Do not allow normal back button behavior
+    },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(selectedActionText),
+          title: Text('Attendance'),
         ),
         body: SingleChildScrollView(
-          child: CalendarPage(amountPayable: amountPayable),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+TableCalendar(
+  firstDay: DateTime(_focusedMonth.year, _focusedMonth.month),
+  lastDay: DateTime(_focusedMonth.year, _focusedMonth.month + 1, 0),
+  focusedDay: _focusedMonth,
+  onPageChanged: _onPageChanged,
+enabledDayPredicate: (DateTime date) {
+  // Allow marking the current date and past dates that have been marked as absent
+  return date.isBefore(DateTime.now()) ||
+      (attendance[date] != null && attendance[date] == true);
+},
+  onDaySelected: _onDaySelected,
+  eventLoader: (day) {
+  return [
+    if (attendance[day] == true)
+      Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.red, // Customize color or use an icon for absent days
+        ),
+        child: Center(
+          child: Text(
+            'X',
+            style: TextStyle(
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+  ];
+},
+),
+              SizedBox(height: 20),
+              Card(
+                margin: EdgeInsets.all(16),
+                child: ListTile(
+                  title: Text(
+                    'Selected Action: ${widget.selectedItemText}',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+              Card(
+                margin: EdgeInsets.all(16),
+                child: ListTile(
+                  title: Text(
+                    'Pay per day: ${widget.amountPayable.toStringAsFixed(2)}',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+              Card(
+                margin: EdgeInsets.all(16),
+                child: ListTile(
+                  title: Text(
+                    'Total Absent Days: ${getAbsentDaysCount().toString()}',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+              Card(
+                margin: EdgeInsets.all(16),
+                child: ListTile(
+                  title: Text(
+                    'Total Amount Payable: ${calculateTotalPayable().toStringAsFixed(2)}',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
-}
-
-
-
-class CalendarPage extends StatefulWidget {
-  double amountPayable;
-
-  CalendarPage({required this.amountPayable});
-
-  @override
-  _CalendarPageState createState() => _CalendarPageState();
-}
-
-class _CalendarPageState extends State<CalendarPage> {
-  late DateTime _focusedDay;
-  late DateTime _selectedDay;
-  late Map<DateTime, List> _events;
-  late Map<DateTime, bool> _markedDates;
-
-  @override
-  void initState() {
-    super.initState();
-    _focusedDay = DateTime.now();
-    _selectedDay = DateTime.now();
-    _events = {}; // You can populate this with events for specific days if needed
-    _markedDates = {};
-  }
-
-  int countRedCrossesThisMonth() {
-    int count = 0;
-    _markedDates.forEach((key, value) {
-      if (value && key.month == _focusedDay.month && key.year == _focusedDay.year) {
-        count++;
-      }
-    });
-    return count;
-  }
-
-  double calculatePayableAmount() {
-    double totalPayable = 0;
-    _markedDates.forEach((key, value) {
-      if (value && key.month == _focusedDay.month && key.year == _focusedDay.year) {
-        totalPayable += widget.amountPayable;
-      }
-    });
-    return totalPayable;
-  }
-
-  void updatePayableAmount(double newAmount) {
-    setState(() {
-      widget.amountPayable = newAmount;
-    });
-  }
-
-  Future<void> _showPayableAmountDialog() async {
-    double newAmount = widget.amountPayable;
-    await showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Change Payable Amount'),
-          content: TextFormField(
-            decoration: InputDecoration(labelText: 'New Payable Amount'),
-            keyboardType: TextInputType.numberWithOptions(decimal: true),
-            onChanged: (value) {
-              newAmount = double.tryParse(value) ?? newAmount;
-            },
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () {
-                updatePayableAmount(newAmount);
-                Navigator.of(context).pop();
-              },
-              child: Text('Update'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final DateTime now = DateTime.now();
-    final DateTime startDay = DateTime(now.year, now.month - 2);
-    final DateTime endDay = DateTime(now.year, now.month + 3);
-
-    return Column(
-      children: <Widget>[
-        TableCalendar(
-          firstDay: startDay,
-          lastDay: endDay,
-          focusedDay: _focusedDay,
-          selectedDayPredicate: (day) {
-            return isSameDay(_selectedDay, day);
-          },
-          onDaySelected: (selectedDay, focusedDay) {
-            setState(() {
-              if (_markedDates.containsKey(selectedDay)) {
-                _markedDates[selectedDay] = !_markedDates[selectedDay]!;
-              } else {
-                _markedDates[selectedDay] = true;
-              }
-              _selectedDay = selectedDay;
-              _focusedDay = focusedDay;
-            });
-          },
-          eventLoader: (day) {
-            return _markedDates[day] != null && _markedDates[day]! ? [true] : [];
-          },
-        ),
-        SizedBox(height: 20), // Add space between the calendar and the data
-
-        Card(
-          elevation: 4,
-          margin: EdgeInsets.all(10),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Text(
-                  'Red Crosses this month',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                SizedBox(height: 5),
-                Text(
-                  '${countRedCrossesThisMonth()}',
-                  style: TextStyle(fontSize: 24, color: Colors.red),
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        Card(
-          elevation: 4,
-          margin: EdgeInsets.all(10),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Text(
-                  'Payable amount',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                SizedBox(height: 5),
-                Text(
-                  '₹${calculatePayableAmount().toStringAsFixed(2)}',
-                  style: TextStyle(fontSize: 24, color: Colors.green),
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        ElevatedButton(
-          onPressed: () {
-            _showPayableAmountDialog();
-          },
-          child: Text('Change Payable Amount'),
-        ),
-        // Any additional widgets or functionalities can be added below the calendar
-      ],
-    );
-  }
-}
-
-// void main() {
-//   runApp(MaterialApp(
-//     home: TrackPage(
-//       selectedActionText: 'Track Page',
-//       amountPayable: 10.0, // Initial payable amount
-//     ),
-//   ));
-// }
-void main() {
-  runApp(MaterialApp(
-    home: TrackPage(
-      selectedActionText: 'Track Page',
-      amountPayable: 10.0, // Initial payable amount
-    ),
-  ));
 }

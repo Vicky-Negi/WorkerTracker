@@ -1,4 +1,4 @@
-name: worker_tracker
+name: WorkerTracker
 description: A new Flutter project.
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -28,8 +28,7 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
-  table_calendar: ^3.0.1
-  sqflite_common_ffi: any
+  table_calendar: ^3.0.0
   flutter:
     sdk: flutter
 
@@ -38,11 +37,19 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.2
   sqflite: ^2.3.0
+  path_provider: ^2.0.2
+  path: ^1.8.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   path: ^1.8.0
+  flutter_launcher_icons: ^0.9.2
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assests/workerTracker.png"
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
