@@ -84,13 +84,8 @@ class _TrackPageState extends State<TrackPage> {
     });
   }
 
-  // Updated method to store marked absent dates in the database
-  void _onDaySelected(DateTime selectedDay, DateTime focusedDay) async {
-    if (selectedDay.isBefore(DateTime.now().subtract(Duration(days: 1)))) {
-      // Do not allow marking future days
-      return;
-    }
-
+void _onDaySelected(DateTime selectedDay, DateTime focusedDay) async {
+  if (selectedDay.isBefore(DateTime.now())) {
     // Toggle the attendance for the selected day
     setState(() {
       attendance[selectedDay] = !(attendance[selectedDay] ?? false);
@@ -110,6 +105,7 @@ class _TrackPageState extends State<TrackPage> {
           widget.selectedItemId, selectedDay.toIso8601String());
     }
   }
+}
 
 void _onPageChanged(DateTime focusedMonth) async {
   if (focusedMonth.isBefore(DateTime.now())) {
@@ -166,10 +162,9 @@ TableCalendar(
   focusedDay: _focusedMonth,
   onPageChanged: _onPageChanged,
 enabledDayPredicate: (DateTime date) {
-  // Allow marking the current date and past dates that have been marked as absent
-  return date.isBefore(DateTime.now()) ||
-      (attendance[date] != null && attendance[date] == true);
-},
+    // Allow marking the current date and past dates that have been marked as absent
+    return date.isBefore(DateTime.now()) || (attendance[date] != null && attendance[date] == true);
+  },
   onDaySelected: _onDaySelected,
   eventLoader: (day) {
   return [
